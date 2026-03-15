@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.stream.Collectors;
 import java.util.List;
 
 /**
@@ -78,6 +79,53 @@ public class HealingReport {
     /** Returns all recorded healing events (unmodifiable). */
     public List<HealingEvent> getEvents() {
         return Collections.unmodifiableList(events);
+    }
+
+    /**
+     * Logs a per-test summary immediately after a test completes.
+     *
+     * <p>Called by {@link io.github.autoheal.healing.listener.AutoHealing}
+     * in {@code afterInvocation()} — fires after every test method, not just
+     * at suite end. Useful for parallel runs where you need to know which
+     * test healed which locator in real time.
+     *
+     * <p><b>Example output:</b>
+     * <pre>
+     *   TEST SUMMARY: loginTest.loginMethodTest
+     *     2 locator(s) healed:
+     *     [1] broken='button#submit-old' healed='[id=submit]' via=AttributeFallbackStrategy
+     *     [2] broken='input#password-old' healed='[id=password]' via=AttributeFallbackStrategy
+     *
+     *   TEST SUMMARY: checkoutTest.placeOrder — no healing needed
+     * </pre>
+     *
+     * @param testName the fully qualified test name
+     */
+    public void logTestSummary(String testName) {
+        if (testName == null) return;
+
+        // Find all events for this specific test
+        List<HealingEvent> testEvents = events.stream()
+                .filter(e -> testName.equals(e.getTestName()))
+                .collect(java.util.stream.Collectors.toList());
+
+        if (testEvents.isEmpty()) {
+            LOG.info("TEST SUMMARY: {} — no healing needed", testName);
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("TEST SUMMARY: ").append(testName).append("\n");
+        sb.append("  ").append(testEvents.size()).append(" locator(s) healed:\n");
+        for (int i = 0; i < testEvents.size(); i++) {
+            HealingEvent e = testEvents.get(i);
+            sb.append("  [").append(i + 1).append("] ")
+              .append("broken=\'").append(e.getBrokenLocator()).append("\'")
+              .append(" healed=\'").append(e.getHealedLocator()).append("\'")
+              .append(" via=").append(e.getStrategyUsed());
+            if (i < testEvents.size() - 1) sb.append("\n");
+        }
+        LOG.warn("{}", sb);
     }
 
     /** Total number of healed locators this run. */

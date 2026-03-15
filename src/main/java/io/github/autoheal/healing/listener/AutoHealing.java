@@ -123,10 +123,15 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
 
     @Override
     public void afterInvocation(IInvokedMethod method, ITestResult testResult) {
-        // Clear test name after each test
-        if (method.isTestMethod()) {
-            HealingReport.setCurrentTestName(null);
-        }
+        if (!method.isTestMethod()) return;
+
+        // Log per-test healing summary immediately after test completes
+        String testName = testResult.getTestClass().getRealClass().getSimpleName()
+                + "." + method.getTestMethod().getMethodName();
+        SUITE_REPORT.logTestSummary(testName);
+
+        // Clear test name ready for next test
+        HealingReport.setCurrentTestName(null);
     }
 
     // =========================================================================

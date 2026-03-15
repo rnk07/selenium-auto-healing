@@ -78,4 +78,37 @@ public class HealingReportTest {
         report.writeReport();
         Assert.assertEquals(report.getTotalHealed(), 0);
     }
+
+    @Test
+    public void logTestSummaryShouldHandleNoHealingGracefully() {
+        // No exception expected when no healing occurred for this test
+        report.logTestSummary("someTest.someMethod");
+    }
+
+    @Test
+    public void logTestSummaryShouldOnlyShowEventsForCurrentTest() {
+        HealingReport.setCurrentTestName("testA.method");
+        report.log(By.id("btn-a"), By.cssSelector("[id*='btn-a']"), "AttributeFallbackStrategy");
+
+        HealingReport.setCurrentTestName("testB.method");
+        report.log(By.id("btn-b"), By.cssSelector("[id*='btn-b']"), "AttributeFallbackStrategy");
+
+        // logTestSummary for testA should only show testA's event
+        Assert.assertEquals(report.getEvents().stream()
+                .filter(e -> "testA.method".equals(e.getTestName()))
+                .count(), 1, "testA should have exactly 1 healing event");
+
+        Assert.assertEquals(report.getEvents().stream()
+                .filter(e -> "testB.method".equals(e.getTestName()))
+                .count(), 1, "testB should have exactly 1 healing event");
+
+        // Total should be 2
+        Assert.assertEquals(report.getTotalHealed(), 2);
+    }
+
+    @Test
+    public void logTestSummaryShouldHandleNullTestName() {
+        // No exception expected when test name is null
+        report.logTestSummary(null);
+    }
 }
