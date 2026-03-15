@@ -72,7 +72,7 @@ public class DomSimilarityStrategy implements IHealingStrategy {
             LoggerFactory.getLogger(DomSimilarityStrategy.class);
 
     /** Minimum similarity score (0-100) to accept a candidate. */
-    private static final double MIN_SCORE = 40.0;
+    private static final double MIN_SCORE = 25.0;
 
     @Override
     public By heal(WebDriver driver, By broken) {
@@ -148,9 +148,17 @@ public class DomSimilarityStrategy implements IHealingStrategy {
     private ElementFingerprint buildFingerprint(String value, String byString) {
         ElementFingerprint fp = new ElementFingerprint();
 
-        // Infer tag from locator type
         String lower = byString.toLowerCase();
-        if (lower.contains("button") || lower.contains("submit") || lower.contains("btn")) {
+        String rawSelector = byString.contains(": ") ?
+                byString.substring(byString.indexOf(": ") + 2).trim() : byString;
+
+        // Priority 1: Extract explicit tag from CSS selector tag#id pattern
+        // e.g. "button#fake-id" -> tag = "button"
+        if (rawSelector.matches("^[a-z]+[#.].*")) {
+            fp.tag = rawSelector.replaceAll("[#.].*", "").trim();
+        }
+        // Priority 2: Infer tag from semantic keywords in locator
+        else if (lower.contains("button") || lower.contains("submit") || lower.contains("btn")) {
             fp.tag = "button";
         } else if (lower.contains("input") || lower.contains("field") ||
                    lower.contains("username") || lower.contains("password") ||
@@ -160,15 +168,17 @@ public class DomSimilarityStrategy implements IHealingStrategy {
             fp.tag = "select";
         } else if (lower.contains("textarea")) {
             fp.tag = "textarea";
-        } else if (lower.contains("link") || lower.contains("href") ||
-                   lower.contains("nav")) {
+        } else if (lower.contains("link") || lower.contains("href") || lower.contains("nav")) {
             fp.tag = "a";
         } else {
-            fp.tag = null; // broad scan
+            fp.tag = null;
         }
 
-        // Use value as expected text hint
-        fp.textHint = value.replaceAll("[_-]", " ").toLowerCase();
+        // Use value as text hint — clean up hash-like noise
+        fp.textHint = value.replaceAll("[_-]", " ")
+                           .replaceAll("[a-zA-Z0-9]{8,}", "") // strip hash-like tokens
+                           .toLowerCase()
+                           .trim();
 
         return fp;
     }
@@ -273,9 +283,9 @@ public class DomSimilarityStrategy implements IHealingStrategy {
             }
         }
 
-        // 2. Tag match bonus (15 points)
+        // 2. Tag match bonus (30 points when explicitly from locator, 15 when inferred)
         if (target.tag != null && target.tag.equals(candidateTag)) {
-            score += 15;
+            score += 30;
         }
 
         // 3. Parent structure (15 points) — form fields usually inside form/div
