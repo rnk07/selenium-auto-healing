@@ -120,8 +120,15 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
     /**
      * Builds progressive stem variants from a locator value.
      *
-     * <p>Also handles trailing special characters:
-     * {@code "username-"} → {@code "username"} (trailing dash stripped)
+     * <p>Handles all common real-world renaming patterns:
+     * <ul>
+     *   <li>Trailing dash/underscore: {@code "username-"} → {@code "username"}</li>
+     *   <li>Version/state suffix: {@code "submit-old"} → {@code "submit"}</li>
+     *   <li>Numeric suffix: {@code "input-1234"} → {@code "input"}</li>
+     *   <li>CSS module hash: {@code "input_abc123xyz"} → {@code "input"}</li>
+     *   <li>Short random hash: {@code "field_xK9mP2"} → {@code "field"}</li>
+     *   <li>camelCase split: {@code "submitButton"} → {@code "submit"}</li>
+     * </ul>
      */
     public List<String> buildStems(String value) {
         List<String> stems = new ArrayList<>();
@@ -130,14 +137,24 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
         String cleaned = value.replaceAll("[-_]+$", "").trim();
         if (!cleaned.equals(value) && !cleaned.isBlank()) {
             stems.add(cleaned);
-            value = cleaned; // use cleaned value for all further stem generation
+            value = cleaned;
         }
 
         stems.add(value);
 
+        // Strip known suffixes: -old, -new, -v2, -123
         String stripped = value.replaceAll("[-_](old|new|v\\d+|\\d+)$", "").trim();
         if (!stripped.equals(value) && !stripped.isBlank()) {
             stems.add(stripped);
+        }
+
+        // Strip CSS module / framework-generated hash suffix
+        // Matches: input_abc123xyz → input, field_xK9mP2 → field, btn_AbCdEf12 → btn
+        // Pattern: underscore followed by 4+ mixed alphanumeric chars (hash-like)
+        String hashStripped = value.replaceAll("[_-][a-zA-Z0-9]{4,}$", "").trim();
+        if (!hashStripped.equals(value) && !hashStripped.isBlank()
+                && !stems.contains(hashStripped)) {
+            stems.add(hashStripped);
         }
 
         String[] parts = value.split("[-_]");

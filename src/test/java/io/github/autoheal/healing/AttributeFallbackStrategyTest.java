@@ -86,6 +86,30 @@ public class AttributeFallbackStrategyTest {
     }
 
     @Test
+    public void buildStemsShouldStripCssModuleHash() {
+        List<String> stems = strategy.buildStems("input_abc123xyz");
+        Assert.assertTrue(stems.contains("input"), "CSS module hash should be stripped");
+    }
+
+    @Test
+    public void buildStemsShouldStripShortRandomHash() {
+        List<String> stems = strategy.buildStems("field_xK9mP2");
+        Assert.assertTrue(stems.contains("field"), "short random hash should be stripped");
+    }
+
+    @Test
+    public void buildStemsShouldStripAngularMaterialIndex() {
+        List<String> stems = strategy.buildStems("mat-input-0");
+        Assert.assertTrue(stems.contains("mat-input"), "Angular Material index should be stripped");
+    }
+
+    @Test
+    public void buildStemsShouldHandleVuetifyGeneratedClass() {
+        List<String> stems = strategy.buildStems("v-input--is-dirty-456");
+        Assert.assertTrue(stems.contains("v-input--is-dirty"), "Vuetify suffix should be stripped");
+    }
+
+    @Test
     public void healShouldReturnLocatorWhenAttributeMatchFound() {
         when(mockDriver.findElements(any(By.class)))
                 .thenReturn(Collections.singletonList(mockElement));
