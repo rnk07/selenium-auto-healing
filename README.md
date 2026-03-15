@@ -43,7 +43,7 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.2</version>
+    <version>2.0.3</version>
 </dependency>
 ```
 
@@ -337,6 +337,13 @@ src/main/java/io/github/autoheal/healing/
 
 ## Changelog
 
+### 2.0.3
+- AutoHealing listener now auto-registers visual healing strategies
+  if selenium-auto-healing-visual jar is on the classpath
+- Uses reflection — zero compile-time dependency on paid library
+- Pro users get visual healing with zero code changes in Base class
+- Free users see no change — silently skips if visual jar absent
+
 ### 2.0.2
 - Added addStrategy(IHealingStrategy) instance method to AutoHealingDriver
   Allows external modules to register strategies at runtime without rebuilding the driver
@@ -421,7 +428,7 @@ button#submit-old fails
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.2</version>
+    <version>2.0.3</version>
 </dependency>
 
 <!-- Paid — GitHub Packages (Pro sponsors only) -->

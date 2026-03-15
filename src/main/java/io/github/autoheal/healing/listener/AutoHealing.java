@@ -113,6 +113,12 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
                 // before AutoHealing had a chance to wrap it.
                 injectDriverIntoPageObjects(testInstance, driverField.getName(), healingDriver);
 
+                // Step 3: Auto-register visual healing strategies if the
+                // selenium-auto-healing-visual jar is on the classpath.
+                // Uses reflection so the free library has zero compile-time
+                // dependency on the paid library — it just skips silently if absent.
+                tryEnableVisualHealing(healingDriver);
+
                 LOG.debug("[AutoHealing] Wrapped driver for test: {}", testName);
             }
 
@@ -132,6 +138,36 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
 
         // Clear test name ready for next test
         HealingReport.setCurrentTestName(null);
+    }
+
+    // =========================================================================
+    // Visual healing — auto-registration via reflection
+    // =========================================================================
+
+    /**
+     * Attempts to register visual healing strategies if the
+     * {@code selenium-auto-healing-visual} library is on the classpath.
+     *
+     * <p>Uses reflection so this free library has zero compile-time dependency
+     * on the paid library. If the visual jar is not present, this method
+     * returns silently without throwing any exception.
+     *
+     * <p>This means Pro users get visual healing automatically just by adding
+     * the paid dependency — no code changes needed in their Base class.
+     */
+    private void tryEnableVisualHealing(AutoHealingDriver driver) {
+        try {
+            Class<?> visualClass = Class.forName(
+                    "io.github.autoheal.visual.VisualAutoHealing");
+            java.lang.reflect.Method enable = visualClass.getMethod(
+                    "enable", AutoHealingDriver.class);
+            enable.invoke(null, driver);
+            LOG.info("[AutoHealing] Visual healing strategies registered automatically.");
+        } catch (ClassNotFoundException ignored) {
+            // Visual library not on classpath — free tier, skip silently
+        } catch (Exception e) {
+            LOG.debug("[AutoHealing] Could not enable visual healing: {}", e.getMessage());
+        }
     }
 
     // =========================================================================
