@@ -45,10 +45,15 @@ public class AttributeFallbackStrategyTest {
     @DataProvider(name = "extractionData")
     public Object[][] extractionData() {
         return new Object[][]{
-                {"By.id: submit-btn",               "submit-btn"},
-                {"By.name: username",               "username"},
-                {"By.cssSelector: #login-form",     "login-form"},
-                {"By.cssSelector: .submit-button",  "submit-button"},
+                // Basic locator types
+                {"By.id: submit-btn",                    "submit-btn"},
+                {"By.name: username",                    "username"},
+                {"By.cssSelector: #login-form",          "login-form"},
+                {"By.cssSelector: .submit-button",       "submit-button"},
+                // tag#id patterns — the fix we added
+                {"By.cssSelector: button#submit-old",    "submit-old"},
+                {"By.cssSelector: input#username",       "username"},
+                {"By.cssSelector: input#password-old",   "password-old"},
         };
     }
 
@@ -100,6 +105,28 @@ public class AttributeFallbackStrategyTest {
 
         By healed = strategy.heal(mockDriver, By.id("my-btn"));
         Assert.assertNotNull(healed, "should find the visible element");
+    }
+
+    @Test
+    public void healShouldHandleTagHashIdCssSelector() {
+        when(mockDriver.findElements(any(By.class)))
+                .thenReturn(Collections.singletonList(mockElement));
+
+        // button#submit-old — tag#id pattern that was failing before the fix
+        By healed = strategy.heal(mockDriver, By.cssSelector("button#submit-old"));
+
+        Assert.assertNotNull(healed, "should heal tag#id CSS selector");
+    }
+
+    @Test
+    public void healShouldHandleInputHashIdCssSelector() {
+        when(mockDriver.findElements(any(By.class)))
+                .thenReturn(Collections.singletonList(mockElement));
+
+        // input#password-old — another tag#id pattern
+        By healed = strategy.heal(mockDriver, By.cssSelector("input#password-old"));
+
+        Assert.assertNotNull(healed, "should heal input#id CSS selector");
     }
 
     @Test

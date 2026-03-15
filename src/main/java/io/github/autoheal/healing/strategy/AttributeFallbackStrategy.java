@@ -38,9 +38,12 @@ import java.util.regex.Pattern;
  *   "email-input-1"   →  ["email-input-1", "email-input"]         (number strip)
  * </pre>
  *
- * <p>Also handles the special case where the broken locator is itself an attribute
- * selector, e.g. {@code By.cssSelector("[aria-label='Login']")} — in that case
- * it matches the attribute/value pair directly before falling back to stems.
+ * <p>Also handles:
+ * <ul>
+ *   <li>Tag+id selectors: {@code button#submit-old} → extracts {@code submit-old}</li>
+ *   <li>Tag+class selectors: {@code button.submit-btn} → extracts {@code submit-btn}</li>
+ *   <li>Attribute selectors: {@code [aria-label='Login']} → matches directly</li>
+ * </ul>
  */
 public class AttributeFallbackStrategy implements IHealingStrategy {
 
@@ -64,11 +67,12 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
         LOG.debug("[AttributeFallbackStrategy] Attempting to heal '{}'", broken);
 
         // Special case: broken locator is already an attribute selector
+        // e.g. By.cssSelector("[aria-label='Login']")
         Matcher m = ATTR_SELECTOR_PATTERN.matcher(raw.trim());
         if (m.matches()) {
-            String attr  = m.group(1);
-            String op    = m.group(2);
-            String val   = m.group(3);
+            String attr   = m.group(1);
+            String op     = m.group(2);
+            String val    = m.group(3);
             boolean exact = op.equals("=") || op.isEmpty();
 
             By directCandidate = By.cssSelector(
@@ -124,11 +128,13 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
         List<String> stems = new ArrayList<>();
         stems.add(value);
 
+        // Strip version/state suffixes: -old, -new, -v2, -1 etc.
         String stripped = value.replaceAll("[-_](old|new|v\\d+|\\d+)$", "").trim();
         if (!stripped.equals(value) && !stripped.isBlank()) {
             stems.add(stripped);
         }
 
+        // Hyphen/underscore prefix segments: "submit-btn-old" → "submit-btn" → "submit"
         String[] parts = value.split("[-_]");
         StringBuilder prefix = new StringBuilder();
         for (int i = 0; i < parts.length - 1; i++) {
@@ -138,7 +144,7 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
             if (stem.length() >= 3 && !stems.contains(stem)) stems.add(stem);
         }
 
-        // camelCase split: "submitButton" → "submit"
+        // camelCase split: "submitButton" → "submit", "loginFormV2" → "login", "login-form"
         String kebab = value.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase();
         if (!kebab.equals(value.toLowerCase())) {
             String[] camelParts = kebab.split("-");
@@ -160,14 +166,34 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
 
     /**
      * Extracts a plain text value from a {@code By.toString()} representation.
-     * Package-visible for use by other strategies.
+     *
+     * <p>Handles all common locator formats:
+     * <ul>
+     *   <li>{@code By.id: submit-btn}               → {@code submit-btn}</li>
+     *   <li>{@code By.cssSelector: button#submit-old}→ {@code submit-old}</li>
+     *   <li>{@code By.cssSelector: input#username}   → {@code username}</li>
+     *   <li>{@code By.cssSelector: .submit-button}   → {@code submit-button}</li>
+     *   <li>{@code By.cssSelector: #login-form}      → {@code login-form}</li>
+     * </ul>
      */
     public static String extractCoreValue(String byString) {
         if (byString == null) return null;
         int colonIndex = byString.indexOf(": ");
         if (colonIndex == -1) return null;
         String raw = byString.substring(colonIndex + 2).trim();
+
+        // Handle tag#id pattern: "button#submit-old" → "submit-old"
+        if (raw.contains("#")) {
+            raw = raw.substring(raw.indexOf("#") + 1);
+        }
+        // Handle tag.class pattern: "button.submit-btn" → "submit-btn"
+        else if (raw.matches("^[a-z]+\\..*")) {
+            raw = raw.substring(raw.indexOf(".") + 1);
+        }
+
+        // Strip any remaining leading special chars
         raw = raw.replaceAll("^[#.\\[/@*>~+]", "");
+
         if (raw.contains("/")) {
             String[] parts = raw.split("/");
             raw = parts[parts.length - 1];
