@@ -104,9 +104,14 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
                         .withReport(SUITE_REPORT)
                         .build();
 
-                // Set the wrapped driver back into ALL classes in the hierarchy
-                // that have a field with the same name (e.g. both Base and BasePage)
+                // Step 1: Inject wrapped driver into Base and BasePage hierarchy
                 injectDriverIntoHierarchy(testInstance, driverField.getName(), healingDriver);
+
+                // Step 2: Find any Page Object fields (e.g. loginPG, homePG) and
+                // re-inject the wrapped driver into their "driver" fields too.
+                // This fixes the case where BasePage saves driver in its constructor
+                // before AutoHealing had a chance to wrap it.
+                injectDriverIntoPageObjects(testInstance, driverField.getName(), healingDriver);
 
                 LOG.debug("[AutoHealing] Wrapped driver for test: {}", testName);
             }
@@ -211,4 +216,46 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
             current = current.getSuperclass();
         }
     }
+    /**
+     * Finds all Page Object fields on the test instance (fields whose type
+     * extends or contains a {@code driver} field) and re-injects the wrapped
+     * driver into them.
+     *
+     * <p>This solves the timing problem where {@code @BeforeMethod} initializes
+     * Page Objects (e.g. {@code loginPG = new LoginPage(driver)}) with the
+     * plain driver BEFORE {@code AutoHealing.beforeInvocation} has a chance
+     * to wrap it. After wrapping, we update the driver reference inside every
+     * Page Object field found on the test instance.
+     *
+     * @param instance      the test instance
+     * @param driverFieldName the name of the driver field (e.g. "driver")
+     * @param healingDriver the wrapped driver to inject
+     */
+    private void injectDriverIntoPageObjects(Object instance,
+                                              String driverFieldName,
+                                              AutoHealingDriver healingDriver) {
+        Class<?> current = instance.getClass();
+        while (current != null && current != Object.class) {
+            for (Field field : current.getDeclaredFields()) {
+                // Skip primitive types, strings, and WebDriver fields
+                // (already handled by injectDriverIntoHierarchy)
+                if (field.getType().isPrimitive()
+                        || field.getType() == String.class
+                        || WebDriver.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    field.setAccessible(true);
+                    Object pageObject = field.get(instance);
+                    if (pageObject == null) continue;
+
+                    // Check if this object has a driver field — if so it's a Page Object
+                    injectDriverIntoHierarchy(pageObject, driverFieldName, healingDriver);
+
+                } catch (Exception ignored) { }
+            }
+            current = current.getSuperclass();
+        }
+    }
+
 }
