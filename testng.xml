@@ -7,6 +7,7 @@
             <class name="io.github.autoheal.healing.ShadowDomStrategyTest"/>
             <class name="io.github.autoheal.healing.IframeStrategyTest"/>
             <class name="io.github.autoheal.healing.StaleElementStrategyTest"/>
+            <class name="io.github.autoheal.healing.DomSimilarityStrategyTest"/>
             <class name="io.github.autoheal.healing.CssFallbackStrategyTest"/>
         </classes>
     </test>
