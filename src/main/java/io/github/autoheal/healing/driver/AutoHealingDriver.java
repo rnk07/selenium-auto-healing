@@ -19,6 +19,7 @@ import io.github.autoheal.healing.strategy.AttributeFallbackStrategy;
 import io.github.autoheal.healing.strategy.CssFallbackStrategy;
 import io.github.autoheal.healing.strategy.IHealingStrategy;
 import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
+import io.github.autoheal.healing.strategy.ShadowDomStrategy;
 import io.github.autoheal.healing.strategy.XPathFallbackStrategy;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Capabilities;
@@ -341,7 +342,8 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                     new AttributeFallbackStrategy(),
                     new XPathFallbackStrategy(),
                     new CssFallbackStrategy(),
-                    new SiblingWalkStrategy()
+                    new SiblingWalkStrategy(),
+                    new ShadowDomStrategy()
             ));
         }
 
