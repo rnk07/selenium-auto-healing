@@ -20,6 +20,7 @@ import io.github.autoheal.healing.strategy.CssFallbackStrategy;
 import io.github.autoheal.healing.strategy.IHealingStrategy;
 import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
 import io.github.autoheal.healing.strategy.IframeStrategy;
+import io.github.autoheal.healing.strategy.StaleElementStrategy;
 import io.github.autoheal.healing.strategy.ShadowDomStrategy;
 import io.github.autoheal.healing.strategy.XPathFallbackStrategy;
 import org.openqa.selenium.By;
@@ -28,6 +29,7 @@ import org.openqa.selenium.Cookie;
 import org.openqa.selenium.HasCapabilities;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.NoSuchElementException;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.OutputType;
 import org.openqa.selenium.TakesScreenshot;
 import org.openqa.selenium.WebDriver;
@@ -101,19 +103,35 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     // =========================================================================
 
     /**
-     * Attempts {@code findElement} on the underlying driver. If
-     * {@link NoSuchElementException} is thrown, runs the healing strategy chain
-     * with implicit wait disabled (to prevent per-probe timeouts multiplying into
-     * a minutes-long hang), then restores implicit wait via a finally block.
+     * Attempts {@code findElement} on the underlying driver. Handles two failure modes:
+     * <ul>
+     *   <li>{@link NoSuchElementException} — locator is broken, runs healing strategy chain</li>
+     *   <li>{@link StaleElementReferenceException} — DOM was refreshed, re-finds the element
+     *       using the same {@link By} locator (common in React/Angular SPAs after re-render)</li>
+     * </ul>
      *
      * @param by the locator to find
      * @return the found (or healed) element
      * @throws NoSuchElementException if all strategies fail
+     * @throws StaleElementReferenceException if re-find also fails after DOM refresh
      */
     @Override
     public WebElement findElement(By by) {
         try {
             return delegate.findElement(by);
+        } catch (StaleElementReferenceException staleException) {
+            // DOM was refreshed (React/Angular re-render, AJAX update)
+            // Re-find the element using the same locator — element still exists, just stale
+            LOG.warn("StaleElementReferenceException for \'{}\'. Re-finding after DOM refresh.", by);
+            try {
+                WebElement refound = delegate.findElement(by);
+                LOG.info("Re-found stale element: \'{\'}", by);
+                report.log(by, by, "StaleElementRefind");
+                return refound;
+            } catch (Exception e) {
+                LOG.error("Could not re-find stale element \'{}\' after DOM refresh.", by);
+                throw staleException;
+            }
         } catch (NoSuchElementException originalException) {
 
             LOG.warn("NoSuchElementException for \'{}\'. Starting healing.", by);
@@ -340,6 +358,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
         private Builder(WebDriver driver) {
             this.baseDriver = driver;
             this.strategies = new ArrayList<>(Arrays.asList(
+                    new StaleElementStrategy(),
                     new AttributeFallbackStrategy(),
                     new XPathFallbackStrategy(),
                     new CssFallbackStrategy(),
