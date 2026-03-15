@@ -15,7 +15,7 @@
 NoSuchElementException: no such element: {"method":"css selector","selector":"button#submit-old"}
 ```
 
-The button still exists on the page. A developer just renamed `submit` to `submit-old` in a sprint.
+The button still exists on the page. A developer just renamed submit to submit-old in a sprint.
 Your test fails. CI is red. You spend an hour tracking down the change.
 
 ---
@@ -42,7 +42,7 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
 </dependency>
 ```
 
@@ -54,28 +54,31 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 
 ### Way 1 — Zero Configuration (recommended, v1.1.0+)
 
-Mirrors the exact simplicity of TestNG's `IRetryAnalyzer`.
+Mirrors the exact simplicity of TestNG's IRetryAnalyzer.
 Just add one annotation to your Base class — nothing else changes.
 
 ```java
 import io.github.autoheal.healing.listener.AutoHealing;
 import org.testng.annotations.Listeners;
 
-@Listeners(AutoHealing.class)          // only change needed
+@Listeners(AutoHealing.class)
 public class Base {
 
     protected WebDriver driver;        // stays as plain WebDriver
+    protected LoginPage loginPG;
 
     @BeforeMethod
     @Parameters("browser")
     public void setUp(@Optional("chrome") String browser) {
         if (browser.equalsIgnoreCase("chrome")) {
-            driver = new ChromeDriver(); // normal driver — AutoHealing wraps it
+            driver = new ChromeDriver();
         } else if (browser.equalsIgnoreCase("firefox")) {
             driver = new FirefoxDriver();
         }
         driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(5));
         driver.manage().window().maximize();
+
+        loginPG = new LoginPage(driver);
     }
 
     @AfterMethod
@@ -88,7 +91,7 @@ public class Base {
 
 AutoHealing automatically:
 - Wraps your driver with AutoHealingDriver before each test via reflection
-- Injects it into all classes in your hierarchy (Base, BasePage, etc.)
+- Injects the wrapped driver into Base, BasePage, and all Page Object fields
 - Sets the current test name for report attribution
 - Writes target/healing-report/*.json at the end of the suite
 
@@ -255,6 +258,39 @@ Each event = one locator to fix in your Page Object.
 
 ---
 
+## How It Works Internally
+
+```
+@Listeners(AutoHealing.class) on Base
+        |
+        v
+@BeforeMethod setUp() runs first
+        +-- driver = new ChromeDriver()         <- plain driver
+        +-- loginPG = new LoginPage(driver)     <- BasePage saves plain driver
+
+AutoHealing.beforeInvocation() runs after setUp
+        +-- Find "driver" field via reflection
+        +-- Wrap: driver = AutoHealingDriver.builder(driver).build()
+        +-- Inject into Base.driver             <- now wrapped
+        +-- Inject into BasePage.driver         <- now wrapped
+        +-- Inject into loginPG.driver          <- now wrapped (v1.1.1 fix)
+
+During test:
+driver.findElement(By.cssSelector("button#submit-old"))
+        |
+        +-- Found?  YES -> return immediately (zero overhead)
+        |
+        +-- NoSuchElementException
+                +-- Set implicitlyWait = ZERO
+                +-- AttributeFallbackStrategy -> [id*='submit'] -> FOUND
+                +-- Restore implicitlyWait (finally block)
+
+After suite
+        +-- Write target/healing-report/*.json
+```
+
+---
+
 ## Custom Strategies
 
 ```java
@@ -262,7 +298,7 @@ public class MyDatabaseStrategy implements IHealingStrategy {
 
     @Override
     public By heal(WebDriver driver, By broken) {
-        // Look up last-known-working locators from your test database
+        // Look up last-known-working locators from your database
         // Return null to pass to the next strategy in the chain
         return null;
     }
@@ -282,31 +318,18 @@ driver = AutoHealingDriver.builder(new ChromeDriver())
 
 ---
 
-## How It Works Internally
+## Backtest Results
 
-```
-@Listeners(AutoHealing.class) on Base
-        |
-        v
-Before each test
-        |
-        +-- Find "driver" field via reflection in class hierarchy
-        +-- Wrap: driver = AutoHealingDriver.builder(driver).build()
-        +-- Inject into Base AND BasePage (all classes in hierarchy)
+Verified against 4 real Selenium practice sites and a real automation framework:
 
-During test:
-driver.findElement(By.cssSelector("button#submit-old"))
-        |
-        +-- Found?  YES -> return immediately (zero overhead)
-        |
-        +-- NoSuchElementException
-                +-- Set implicitlyWait = ZERO
-                +-- AttributeFallbackStrategy -> [id*='submit'] -> FOUND
-                +-- Restore implicitlyWait (finally block)
-
-After suite
-        +-- Write target/healing-report/*.json
-```
+| Site / Framework | Scenario | Result |
+|---|---|---|
+| practicetestautomation.com | button#submit -> button#submit-old | Healed |
+| the-internet.herokuapp.com | .radius -> .btn-radius | Healed |
+| demoqa.com | id=login -> id=loginButton | Healed |
+| saucedemo.com | id=login-button -> id=login-btn | Healed |
+| Real TestNG POM framework | button#submit-old in Page Object | Healed |
+| Any locator | Completely random ID | Fails gracefully |
 
 ---
 
@@ -326,29 +349,19 @@ src/main/java/io/github/autoheal/healing/
 |   +-- HealingReport.java              <- JSON report writer
 |   +-- HealingEvent.java
 +-- listener/
-    +-- AutoHealing.java                <- @Listeners(AutoHealing.class) NEW in 1.1.0
-    +-- HealingDriverField.java         <- @HealingDriverField annotation NEW in 1.1.0
+    +-- AutoHealing.java                <- @Listeners(AutoHealing.class)
+    +-- HealingDriverField.java         <- @HealingDriverField annotation
     +-- HealingReportListener.java      <- manual wiring helper (Way 2)
 ```
 
 ---
 
-## Backtest Results
-
-Verified against 4 real Selenium practice sites and a real automation framework:
-
-| Site / Framework | Scenario | Result |
-|---|---|---|
-| practicetestautomation.com | button#submit -> button#submit-old | Healed |
-| the-internet.herokuapp.com | .radius -> .btn-radius | Healed |
-| demoqa.com | id=login -> id=loginButton | Healed |
-| saucedemo.com | id=login-button -> id=login-btn | Healed |
-| Real TestNG framework | button#submit-old in Page Object | Healed |
-| Any locator | Completely random ID | Fails gracefully |
-
----
-
 ## Changelog
+
+### 1.1.1
+- Fixed AutoHealing to inject wrapped driver into Page Object fields
+  (e.g. loginPG, homePG) after wrapping — solves the timing problem where
+  BasePage saved the plain driver in its constructor before AutoHealing wrapped it
 
 ### 1.1.0
 - Added AutoHealing — zero-configuration TestNG listener
