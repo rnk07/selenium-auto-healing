@@ -15,7 +15,7 @@
 NoSuchElementException: no such element: {"method":"css selector","selector":"button#submit-old"}
 ```
 
-The button still exists on the page. A developer just renamed `submit` → `submit-old` in a sprint.
+The button still exists on the page. A developer just renamed `submit` to `submit-old` in a sprint.
 Your test fails. CI is red. You spend an hour tracking down the change.
 
 ---
@@ -23,14 +23,14 @@ Your test fails. CI is red. You spend an hour tracking down the change.
 ## The Solution
 
 ```java
-// ONE line change in your BaseTest — everything else stays the same
-AutoHealingDriver driver = AutoHealingDriver.builder(new ChromeDriver()).build();
-
-// Your existing Page Objects work unchanged
-driver.findElement(By.cssSelector("button#submit-old")).click(); // healed automatically
+// ONE annotation on your Base class — everything works automatically
+@Listeners(AutoHealing.class)
+public class Base {
+    protected WebDriver driver; // no other changes needed
+}
 ```
 
-When a locator fails, four healing strategies run in priority order and find the element
+When a locator fails, four healing strategies run automatically and find the element
 using stable attributes, text content, CSS class matching, or DOM sibling walking.
 The test passes. A JSON report tells you exactly which locators need to be updated.
 
@@ -42,21 +42,67 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
 ---
 
-## Quick Start
+## Quick Start — Two Ways to Use
 
-### 1. Change one line in BaseTest
+---
+
+### Way 1 — Zero Configuration (recommended, v1.1.0+)
+
+Mirrors the exact simplicity of TestNG's `IRetryAnalyzer`.
+Just add one annotation to your Base class — nothing else changes.
+
+```java
+import io.github.autoheal.healing.listener.AutoHealing;
+import org.testng.annotations.Listeners;
+
+@Listeners(AutoHealing.class)          // only change needed
+public class Base {
+
+    protected WebDriver driver;        // stays as plain WebDriver
+
+    @BeforeMethod
+    @Parameters("browser")
+    public void setUp(@Optional("chrome") String browser) {
+        if (browser.equalsIgnoreCase("chrome")) {
+            driver = new ChromeDriver(); // normal driver — AutoHealing wraps it
+        } else if (browser.equalsIgnoreCase("firefox")) {
+            driver = new FirefoxDriver();
+        }
+        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(5));
+        driver.manage().window().maximize();
+    }
+
+    @AfterMethod
+    public void tearDown() {
+        if (driver != null) driver.quit();
+    }
+    // No @AfterSuite needed — AutoHealing writes the report automatically
+}
+```
+
+AutoHealing automatically:
+- Wraps your driver with AutoHealingDriver before each test via reflection
+- Injects it into all classes in your hierarchy (Base, BasePage, etc.)
+- Sets the current test name for report attribution
+- Writes target/healing-report/*.json at the end of the suite
+
+---
+
+### Way 2 — Manual Configuration (v1.0.x)
+
+Use this if you want full control over the driver and report.
 
 ```java
 import io.github.autoheal.healing.driver.AutoHealingDriver;
 import io.github.autoheal.healing.listener.HealingReportListener;
 
-public class BaseTest {
+public class Base {
 
     protected AutoHealingDriver driver;
 
@@ -89,11 +135,12 @@ public class BaseTest {
 }
 ```
 
-### 2. Update BasePage to route through AutoHealingDriver
+---
 
-The key change is using `visibilityOf(WebElement)` instead of
-`visibilityOfElementLocated(By)` — this ensures `findElement` goes through
-`AutoHealingDriver` so healing triggers correctly:
+### BasePage — one important change for both ways
+
+Replace visibilityOfElementLocated(By) with visibilityOf(WebElement) so
+findElement routes through AutoHealingDriver and healing triggers correctly:
 
 ```java
 // WRONG — bypasses AutoHealingDriver, healing never triggers
@@ -113,7 +160,9 @@ protected WebElement waitForClickable(By locator) {
 }
 ```
 
-### 3. Your Page Objects — zero changes needed
+---
+
+### Page Objects — zero changes needed
 
 ```java
 public class LoginPage extends BasePage {
@@ -125,8 +174,28 @@ public class LoginPage extends BasePage {
 }
 ```
 
-### 4. Check the healing report after the run
+---
 
+## Custom Driver Field Name
+
+If your driver field is NOT named driver, add @HealingDriverField:
+
+```java
+import io.github.autoheal.healing.listener.HealingDriverField;
+
+@Listeners(AutoHealing.class)
+public class Base {
+
+    @HealingDriverField
+    protected WebDriver myCustomDriver;
+}
+```
+
+---
+
+## The Healing Report
+
+After your test run, check:
 ```
 target/healing-report/healing-report-20260315-011326.json
 ```
@@ -160,60 +229,29 @@ Each event = one locator to fix in your Page Object.
 
 | Priority | Strategy | Heals |
 |----------|----------|-------|
-| 10 | `AttributeFallbackStrategy` | ID/name renames, version bumps, camelCase changes, tag#id CSS selectors |
-| 20 | `XPathFallbackStrategy` | Button/link text stable, attributes changed |
-| 30 | `CssFallbackStrategy` | CSS class renames, BEM drift, module hashing |
-| 40 | `SiblingWalkStrategy` | Form fields where label is stable, input id changed |
+| 10 | AttributeFallbackStrategy | ID/name renames, version bumps, camelCase, tag#id CSS selectors |
+| 20 | XPathFallbackStrategy | Button/link text stable, attributes changed |
+| 30 | CssFallbackStrategy | CSS class renames, BEM drift, module hashing |
+| 40 | SiblingWalkStrategy | Form fields where label is stable, input id changed |
 
 ### How stem generation works
 
-The key insight: `submit-old` and `submit-new` share the stem `submit`.
-
 ```
-"button#submit-old"  →  extracts "submit-old"  →  stems: ["submit-old", "submit"]
-"input#password-old" →  extracts "password-old" →  stems: ["password-old", "password"]
-"loginFormV2"        →  stems: ["loginFormV2", "login", "login-form"]  (camelCase)
-"email-input-1"      →  stems: ["email-input-1", "email-input"]        (number strip)
+"button#submit-old"  ->  extracts "submit-old"  ->  stems: ["submit-old", "submit"]
+"input#password-old" ->  extracts "password-old" ->  stems: ["password-old", "password"]
+"loginFormV2"        ->  stems: ["loginFormV2", "login", "login-form"]  (camelCase)
+"email-input-1"      ->  stems: ["email-input-1", "email-input"]        (number strip)
 ```
-
-Each stem is probed against `data-testid`, `id`, `name`, `aria-label`, and 8 other attributes.
 
 ### What healing can and cannot do
 
 | Broken locator | Heals? | Reason |
 |---|---|---|
-| `button#submit-old` | ✅ Yes | stem `submit` matches real `id=submit` |
-| `input#password-old` | ✅ Yes | stem `password` matches real `id=password` |
-| `input#username-v2` | ✅ Yes | stem `username` matches real `id=username` |
-| `input#passwordxyzabc` | ❌ No | `xyzabc` has no connection to real element |
-| `button#xyz123` | ❌ No | completely random — no stem match possible |
-
-Healing fixes **realistic renames** that happen in real projects — version bumps,
-suffix changes, abbreviation expansions. It cannot guess completely random IDs.
-
----
-
-## How It Works Internally
-
-```
-driver.findElement(By.cssSelector("button#submit-old"))
-    │
-    ├── Found?  YES → return immediately (zero overhead on stable locators)
-    │
-    └── NoSuchElementException
-            │
-            ├── Set implicitlyWait = ZERO  (prevents per-probe timeout hang)
-            │
-            ├── AttributeFallbackStrategy.heal()
-            │       extract: "button#submit-old" → "submit-old"
-            │       stems:   ["submit-old", "submit"]
-            │       probe:   [id*='submit'] → FOUND ✅
-            │
-            └── Restore implicitlyWait (finally block — always runs)
-                Return healed element → test continues
-```
-
-The implicit wait is always restored via a `finally` block, even if a strategy throws.
+| button#submit-old | YES | stem "submit" matches real id=submit |
+| input#password-old | YES | stem "password" matches real id=password |
+| input#username-v2 | YES | stem "username" matches real id=username |
+| input#passwordxyzabc | NO | "xyzabc" has no connection to real element |
+| button#xyz123 | NO | completely random, no stem match possible |
 
 ---
 
@@ -230,21 +268,67 @@ public class MyDatabaseStrategy implements IHealingStrategy {
     }
 
     @Override
-    public int getPriority() { return 50; } // runs after all built-ins
+    public int getPriority() { return 50; }
 }
+```
 
-// Register:
-AutoHealingDriver driver = AutoHealingDriver.builder(new ChromeDriver())
+When using Way 2 (manual), register via the builder:
+```java
+driver = AutoHealingDriver.builder(new ChromeDriver())
         .withStrategy(new MyDatabaseStrategy())
+        .withoutStrategy(SiblingWalkStrategy.class)
         .build();
 ```
 
-Remove slow strategies for speed-sensitive runs:
+---
 
-```java
-AutoHealingDriver driver = AutoHealingDriver.builder(new ChromeDriver())
-        .withoutStrategy(SiblingWalkStrategy.class)
-        .build();
+## How It Works Internally
+
+```
+@Listeners(AutoHealing.class) on Base
+        |
+        v
+Before each test
+        |
+        +-- Find "driver" field via reflection in class hierarchy
+        +-- Wrap: driver = AutoHealingDriver.builder(driver).build()
+        +-- Inject into Base AND BasePage (all classes in hierarchy)
+
+During test:
+driver.findElement(By.cssSelector("button#submit-old"))
+        |
+        +-- Found?  YES -> return immediately (zero overhead)
+        |
+        +-- NoSuchElementException
+                +-- Set implicitlyWait = ZERO
+                +-- AttributeFallbackStrategy -> [id*='submit'] -> FOUND
+                +-- Restore implicitlyWait (finally block)
+
+After suite
+        +-- Write target/healing-report/*.json
+```
+
+---
+
+## Project Structure
+
+```
+src/main/java/io/github/autoheal/healing/
++-- driver/
+|   +-- AutoHealingDriver.java          <- wraps WebDriver with healing
++-- strategy/
+|   +-- IHealingStrategy.java           <- implement for custom strategies
+|   +-- AttributeFallbackStrategy.java  <- priority 10
+|   +-- XPathFallbackStrategy.java      <- priority 20
+|   +-- CssFallbackStrategy.java        <- priority 30
+|   +-- SiblingWalkStrategy.java        <- priority 40
++-- report/
+|   +-- HealingReport.java              <- JSON report writer
+|   +-- HealingEvent.java
++-- listener/
+    +-- AutoHealing.java                <- @Listeners(AutoHealing.class) NEW in 1.1.0
+    +-- HealingDriverField.java         <- @HealingDriverField annotation NEW in 1.1.0
+    +-- HealingReportListener.java      <- manual wiring helper (Way 2)
 ```
 
 ---
@@ -255,61 +339,49 @@ Verified against 4 real Selenium practice sites and a real automation framework:
 
 | Site / Framework | Scenario | Result |
 |---|---|---|
-| practicetestautomation.com | `button#submit` → `button#submit-old` | ✅ Healed |
-| the-internet.herokuapp.com | `.radius` → `.btn-radius` | ✅ Healed |
-| demoqa.com | `id=login` → `id=loginButton` | ✅ Healed |
-| saucedemo.com | `id=login-button` → `id=login-btn` | ✅ Healed |
-| Real TestNG framework | `button#submit-old` in POM | ✅ Healed |
-| Any locator | Completely random ID | ❌ Fails gracefully |
-
----
-
-## Project Structure
-
-```
-src/main/java/io/github/autoheal/healing/
-├── driver/
-│   └── AutoHealingDriver.java         ← main entry point + Builder
-├── strategy/
-│   ├── IHealingStrategy.java          ← implement for custom strategies
-│   ├── AttributeFallbackStrategy.java ← priority 10
-│   ├── XPathFallbackStrategy.java     ← priority 20
-│   ├── CssFallbackStrategy.java       ← priority 30
-│   └── SiblingWalkStrategy.java       ← priority 40
-├── report/
-│   ├── HealingReport.java             ← JSON report writer
-│   └── HealingEvent.java
-└── listener/
-    └── HealingReportListener.java     ← TestNG wiring helper
-```
+| practicetestautomation.com | button#submit -> button#submit-old | Healed |
+| the-internet.herokuapp.com | .radius -> .btn-radius | Healed |
+| demoqa.com | id=login -> id=loginButton | Healed |
+| saucedemo.com | id=login-button -> id=login-btn | Healed |
+| Real TestNG framework | button#submit-old in Page Object | Healed |
+| Any locator | Completely random ID | Fails gracefully |
 
 ---
 
 ## Changelog
 
+### 1.1.0
+- Added AutoHealing — zero-configuration TestNG listener
+  (@Listeners(AutoHealing.class) is all you need)
+- Added @HealingDriverField annotation for custom driver field names
+- AutoHealing finds and wraps driver via reflection, injects into full
+  class hierarchy, and writes report at suite end automatically
+- Added withReport() to AutoHealingDriver.Builder for shared suite reports
+- TestNG moved from test scope to provided scope
+
 ### 1.0.1
-- Fixed `extractCoreValue` to correctly handle `tag#id` CSS selector patterns
-  (e.g. `button#submit-old` now correctly extracts `submit-old` instead of `button#submit-old`)
-- Fixed `tag.class` CSS selector patterns (e.g. `button.submit-btn` → `submit-btn`)
-- Added 3 new unit tests covering these patterns
+- Fixed extractCoreValue to handle tag#id CSS selector patterns
+  (button#submit-old now correctly extracts submit-old)
+- Fixed tag.class CSS selector patterns
+- Added 3 new unit tests
 
 ### 1.0.0
 - Initial release
 - Four built-in healing strategies: Attribute, XPath, CSS, SiblingWalk
 - Stem-based locator matching with camelCase and version suffix support
-- JSON healing report written to `target/healing-report/`
-- TestNG integration via `HealingReportListener`
+- JSON healing report written to target/healing-report/
+- TestNG integration via HealingReportListener
 
 ---
 
 ## Requirements
 
 - Java 11+
-- Selenium 4.x (provided — bring your own version)
-- TestNG 7.x (optional — only needed for `HealingReportListener`)
+- Selenium 4.x (provided)
+- TestNG 7.x (provided)
 
 ---
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE)
+Apache License 2.0 — see LICENSE

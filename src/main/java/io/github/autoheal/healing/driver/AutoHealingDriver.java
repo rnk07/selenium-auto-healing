@@ -307,7 +307,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
 
         private final WebDriver baseDriver;
         private final List<IHealingStrategy> strategies;
-        private final HealingReport report = new HealingReport();
+        private HealingReport report = new HealingReport();
 
         private Builder(WebDriver driver) {
             this.baseDriver = driver;
@@ -347,6 +347,19 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
          * @param custom the replacement strategies
          * @return this builder
          */
+        /**
+         * Use a shared {@link HealingReport} instead of creating a new one.
+         * Used internally by {@link io.github.autoheal.healing.listener.AutoHealing}
+         * to aggregate all healing events across the suite into one report.
+         *
+         * @param sharedReport the shared report instance
+         * @return this builder
+         */
+        public Builder withReport(HealingReport sharedReport) {
+            this.report = sharedReport;
+            return this;
+        }
+
         public Builder withStrategies(IHealingStrategy... custom) {
             strategies.clear();
             strategies.addAll(Arrays.asList(custom));
