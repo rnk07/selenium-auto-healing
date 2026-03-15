@@ -13,6 +13,7 @@
  */
 package io.github.autoheal.healing.driver;
 
+import io.github.autoheal.healing.db.HealingDatabase;
 import io.github.autoheal.healing.report.HealingReport;
 import io.github.autoheal.healing.strategy.AttributeFallbackStrategy;
 import io.github.autoheal.healing.strategy.CssFallbackStrategy;
@@ -113,10 +114,29 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
             return delegate.findElement(by);
         } catch (NoSuchElementException originalException) {
 
-            LOG.warn("NoSuchElementException for '{}'. Starting healing chain ({} strategies).",
-                    by, strategies.size());
+            LOG.warn("NoSuchElementException for \'{}\'. Starting healing.", by);
 
-            // Disable implicit wait — each strategy probe must return immediately
+            // Step 1: Check historical database first — instant recall, no DOM probing
+            String currentUrl = getCurrentPageUrl();
+            By fromDb = HealingDatabase.getInstance().lookup(by, currentUrl);
+            if (fromDb != null) {
+                try {
+                    List<WebElement> dbFound = delegate.findElements(fromDb);
+                    WebElement dbVisible = dbFound.stream()
+                            .filter(e -> { try { return e.isDisplayed(); } catch (Exception ex) { return false; } })
+                            .findFirst().orElse(null);
+                    if (dbVisible != null) {
+                        LOG.info("Healed instantly from history: \'{}\' -> \'{\'}", by, fromDb);
+                        report.log(by, fromDb, "HistoricalDatabase");
+                        return dbVisible;
+                    }
+                } catch (Exception ex) {
+                    LOG.debug("DB lookup element no longer valid, falling back to strategy chain.");
+                }
+            }
+
+            // Step 2: Run strategy chain — disable implicit wait to prevent hanging
+            LOG.info("Running strategy chain ({} strategies) for \'{\'}", strategies.size(), by);
             delegate.manage().timeouts().implicitlyWait(Duration.ZERO);
 
             try {
@@ -135,6 +155,8 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
 
                         if (visible != null) {
                             report.log(by, healed, strategy.getName());
+                            // Save to DB so next run is instant
+                            HealingDatabase.getInstance().save(by, healed, currentUrl, strategy.getName());
                             return visible;
                         }
                     } catch (Exception ex) {
@@ -146,11 +168,15 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                 delegate.manage().timeouts().implicitlyWait(configuredImplicitWait);
             }
 
-            LOG.error("All {} strategies failed for '{}'. Rethrowing original exception.", strategies.size(), by);
+            LOG.error("All {} strategies failed for \'{}\'. Rethrowing original exception.", strategies.size(), by);
             throw originalException;
         }
     }
 
+    /** Returns the current page URL safely — empty string if not available. */
+    private String getCurrentPageUrl() {
+        try { return delegate.getCurrentUrl(); } catch (Exception e) { return ""; }
+    }
     @Override
     public List<WebElement> findElements(By by) {
         return delegate.findElements(by);
