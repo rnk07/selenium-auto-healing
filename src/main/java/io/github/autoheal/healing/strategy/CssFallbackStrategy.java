@@ -19,19 +19,22 @@ import org.openqa.selenium.WebElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * CssFallbackStrategy (priority 30)
  *
  * <p>Heals broken CSS class selectors using stem matching, CSS module hash
- * stripping, and camelCase-to-kebab-case conversion.
+ * stripping, BEM pattern handling, and camelCase-to-kebab-case conversion.
  *
  * <p><b>Examples:</b>
  * <pre>
- *   .submit-button-old  →  [class*='submit-button']
- *   .btn_abc123         →  [class*='btn']              (hash stripped)
- *   .submitButton       →  [class*='submit']           (camelCase split)
+ *   .submit-button-old            ->  [class*='submit-button']
+ *   .btn_abc123                   ->  [class*='btn']
+ *   .form__field--error_abc123    ->  [class*='form__field--error']  (BEM + hash)
+ *   .LoginForm__input___2abc      ->  [class*='LoginForm__input']    (React CSS Module)
+ *   .text-blue-500_xK9m           ->  [class*='text-blue-500']       (Tailwind JIT)
  * </pre>
  */
 public class CssFallbackStrategy implements IHealingStrategy {
@@ -47,36 +50,73 @@ public class CssFallbackStrategy implements IHealingStrategy {
 
         LOG.debug("[CssFallbackStrategy] Attempting class heal for '{}'", broken);
 
-        List<String> stems = new AttributeFallbackStrategy().buildStems(value);
+        List<String> candidates = buildCssCandidates(value);
 
-        for (String stem : stems) {
-            By candidate = By.cssSelector("[class*='" + stem + "']");
-            if (isVisible(driver, candidate)) {
-                LOG.info("[CssFallbackStrategy] Healed '{}' → [class*='{}']", broken, stem);
-                return candidate;
-            }
-
-            // camelCase → kebab-case
-            String kebab = toKebabCase(stem);
-            if (!kebab.equals(stem)) {
-                candidate = By.cssSelector("[class*='" + kebab + "']");
-                if (isVisible(driver, candidate)) {
-                    LOG.info("[CssFallbackStrategy] Healed '{}' → kebab [class*='{}']", broken, kebab);
-                    return candidate;
-                }
-            }
-
-            // Strip CSS module hash: btn_abc123 → btn
-            String stripped = stem.replaceAll("[_-][a-zA-Z0-9]{4,}$", "");
-            if (!stripped.equals(stem) && !stripped.isBlank()) {
-                candidate = By.cssSelector("[class*='" + stripped + "']");
-                if (isVisible(driver, candidate)) {
-                    LOG.info("[CssFallbackStrategy] Healed '{}' → hash-stripped [class*='{}']", broken, stripped);
-                    return candidate;
-                }
+        for (String candidate : candidates) {
+            By by = By.cssSelector("[class*='" + candidate + "']");
+            if (isVisible(driver, by)) {
+                LOG.info("[CssFallbackStrategy] Healed '{}' -> [class*='{}']", broken, candidate);
+                return by;
             }
         }
         return null;
+    }
+
+    /**
+     * Builds CSS class candidate values covering all modern naming conventions.
+     */
+    public List<String> buildCssCandidates(String value) {
+        List<String> candidates = new ArrayList<>();
+
+        addIfNew(candidates, value);
+
+        for (String stem : new AttributeFallbackStrategy().buildStems(value)) {
+            addIfNew(candidates, stem);
+        }
+
+        // React CSS Modules triple underscore: LoginForm__input___2abc -> LoginForm__input
+        String reactModule = value.replaceAll("___[a-zA-Z0-9]+$", "");
+        addIfNew(candidates, reactModule);
+
+        // BEM with hash: form__field--error_abc123 -> form__field--error
+        String bemHash = value.replaceAll("[_][a-zA-Z0-9]{3,}$", "");
+        addIfNew(candidates, bemHash);
+
+        // BEM block and element: form__field--error -> form__field -> form
+        if (value.contains("__")) {
+            String bemElement = value.contains("--")
+                    ? value.substring(0, value.indexOf("--"))
+                    : value;
+            addIfNew(candidates, bemElement);
+            String bemBlock = value.substring(0, value.indexOf("__"));
+            addIfNew(candidates, bemBlock);
+        }
+
+        // camelCase to kebab: LoginFormInput -> login-form-input -> login-form -> login
+        String kebab = value.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase();
+        addIfNew(candidates, kebab);
+        // Also add prefix stems of the kebab form
+        String[] kebabParts = kebab.split("-");
+        StringBuilder kebabPrefix = new StringBuilder();
+        for (int i = 0; i < kebabParts.length - 1; i++) {
+            if (kebabPrefix.length() > 0) kebabPrefix.append("-");
+            kebabPrefix.append(kebabParts[i]);
+            String kebabStem = kebabPrefix.toString();
+            if (kebabStem.length() >= 3) addIfNew(candidates, kebabStem);
+        }
+
+        // Tailwind JIT: text-blue-500_xK9m -> text-blue-500
+        String tailwind = value.replaceAll("_[a-zA-Z0-9]{3,}$", "");
+        addIfNew(candidates, tailwind);
+
+        candidates.removeIf(s -> s == null || s.isBlank() || s.length() < 2);
+        return candidates;
+    }
+
+    private void addIfNew(List<String> list, String value) {
+        if (value != null && !value.isBlank() && !list.contains(value)) {
+            list.add(value);
+        }
     }
 
     private boolean isVisible(WebDriver driver, By by) {
@@ -88,10 +128,6 @@ public class CssFallbackStrategy implements IHealingStrategy {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    private String toKebabCase(String v) {
-        return v.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase();
     }
 
     @Override

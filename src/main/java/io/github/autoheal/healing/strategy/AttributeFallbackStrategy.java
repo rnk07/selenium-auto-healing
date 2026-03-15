@@ -192,6 +192,18 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
      */
     public static String extractCoreValue(String byString) {
         if (byString == null) return null;
+
+        // Warn about React data-reactid — these are internal React identifiers
+        // that change on every render and should NEVER be used as locators.
+        // Log a clear warning so the developer knows to fix the Page Object.
+        if (byString.contains("data-reactid")) {
+            LoggerFactory.getLogger(AttributeFallbackStrategy.class).warn(
+                "[AttributeFallbackStrategy] 'data-reactid' detected in locator: '{}'.\n" +
+                "  data-reactid is an INTERNAL React identifier that changes on every render.\n" +
+                "  It cannot be healed reliably. Please update your Page Object to use:\n" +
+                "  data-testid, aria-label, name, or a stable CSS class instead.", byString);
+        }
+
         int colonIndex = byString.indexOf(": ");
         if (colonIndex == -1) return null;
         String raw = byString.substring(colonIndex + 2).trim();
