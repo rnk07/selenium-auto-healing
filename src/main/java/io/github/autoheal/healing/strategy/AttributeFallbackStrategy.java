@@ -38,12 +38,9 @@ import java.util.regex.Pattern;
  *   "email-input-1"   →  ["email-input-1", "email-input"]         (number strip)
  * </pre>
  *
- * <p>Also handles:
- * <ul>
- *   <li>Tag+id selectors: {@code button#submit-old} → extracts {@code submit-old}</li>
- *   <li>Tag+class selectors: {@code button.submit-btn} → extracts {@code submit-btn}</li>
- *   <li>Attribute selectors: {@code [aria-label='Login']} → matches directly</li>
- * </ul>
+ * <p>Also handles the special case where the broken locator is itself an attribute
+ * selector, e.g. {@code By.cssSelector("[aria-label='Login']")} — in that case
+ * it matches the attribute/value pair directly before falling back to stems.
  */
 public class AttributeFallbackStrategy implements IHealingStrategy {
 
@@ -67,12 +64,11 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
         LOG.debug("[AttributeFallbackStrategy] Attempting to heal '{}'", broken);
 
         // Special case: broken locator is already an attribute selector
-        // e.g. By.cssSelector("[aria-label='Login']")
         Matcher m = ATTR_SELECTOR_PATTERN.matcher(raw.trim());
         if (m.matches()) {
-            String attr   = m.group(1);
-            String op     = m.group(2);
-            String val    = m.group(3);
+            String attr  = m.group(1);
+            String op    = m.group(2);
+            String val   = m.group(3);
             boolean exact = op.equals("=") || op.isEmpty();
 
             By directCandidate = By.cssSelector(
@@ -123,18 +119,27 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
 
     /**
      * Builds progressive stem variants from a locator value.
+     *
+     * <p>Also handles trailing special characters:
+     * {@code "username-"} → {@code "username"} (trailing dash stripped)
      */
     public List<String> buildStems(String value) {
         List<String> stems = new ArrayList<>();
+
+        // Strip trailing special characters: "username-" → "username"
+        String cleaned = value.replaceAll("[-_]+$", "").trim();
+        if (!cleaned.equals(value) && !cleaned.isBlank()) {
+            stems.add(cleaned);
+            value = cleaned; // use cleaned value for all further stem generation
+        }
+
         stems.add(value);
 
-        // Strip version/state suffixes: -old, -new, -v2, -1 etc.
         String stripped = value.replaceAll("[-_](old|new|v\\d+|\\d+)$", "").trim();
         if (!stripped.equals(value) && !stripped.isBlank()) {
             stems.add(stripped);
         }
 
-        // Hyphen/underscore prefix segments: "submit-btn-old" → "submit-btn" → "submit"
         String[] parts = value.split("[-_]");
         StringBuilder prefix = new StringBuilder();
         for (int i = 0; i < parts.length - 1; i++) {
@@ -144,7 +149,7 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
             if (stem.length() >= 3 && !stems.contains(stem)) stems.add(stem);
         }
 
-        // camelCase split: "submitButton" → "submit", "loginFormV2" → "login", "login-form"
+        // camelCase split: "submitButton" → "submit"
         String kebab = value.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase();
         if (!kebab.equals(value.toLowerCase())) {
             String[] camelParts = kebab.split("-");
@@ -166,15 +171,7 @@ public class AttributeFallbackStrategy implements IHealingStrategy {
 
     /**
      * Extracts a plain text value from a {@code By.toString()} representation.
-     *
-     * <p>Handles all common locator formats:
-     * <ul>
-     *   <li>{@code By.id: submit-btn}               → {@code submit-btn}</li>
-     *   <li>{@code By.cssSelector: button#submit-old}→ {@code submit-old}</li>
-     *   <li>{@code By.cssSelector: input#username}   → {@code username}</li>
-     *   <li>{@code By.cssSelector: .submit-button}   → {@code submit-button}</li>
-     *   <li>{@code By.cssSelector: #login-form}      → {@code login-form}</li>
-     * </ul>
+     * Package-visible for use by other strategies.
      */
     public static String extractCoreValue(String byString) {
         if (byString == null) return null;

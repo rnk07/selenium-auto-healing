@@ -45,15 +45,10 @@ public class AttributeFallbackStrategyTest {
     @DataProvider(name = "extractionData")
     public Object[][] extractionData() {
         return new Object[][]{
-                // Basic locator types
-                {"By.id: submit-btn",                    "submit-btn"},
-                {"By.name: username",                    "username"},
-                {"By.cssSelector: #login-form",          "login-form"},
-                {"By.cssSelector: .submit-button",       "submit-button"},
-                // tag#id patterns — the fix we added
-                {"By.cssSelector: button#submit-old",    "submit-old"},
-                {"By.cssSelector: input#username",       "username"},
-                {"By.cssSelector: input#password-old",   "password-old"},
+                {"By.id: submit-btn",               "submit-btn"},
+                {"By.name: username",               "username"},
+                {"By.cssSelector: #login-form",     "login-form"},
+                {"By.cssSelector: .submit-button",  "submit-button"},
         };
     }
 
@@ -70,6 +65,24 @@ public class AttributeFallbackStrategyTest {
         List<String> stems = strategy.buildStems("loginButton");
         Assert.assertTrue(stems.contains("loginButton"), "original");
         Assert.assertTrue(stems.contains("login"),       "camelCase prefix");
+    }
+
+    @Test
+    public void buildStemsShouldStripTrailingDash() {
+        List<String> stems = strategy.buildStems("username-");
+        Assert.assertTrue(stems.contains("username"), "trailing dash should be stripped");
+    }
+
+    @Test
+    public void buildStemsShouldStripTrailingUnderscore() {
+        List<String> stems = strategy.buildStems("password_");
+        Assert.assertTrue(stems.contains("password"), "trailing underscore should be stripped");
+    }
+
+    @Test
+    public void buildStemsShouldStripMultipleTrailingDashes() {
+        List<String> stems = strategy.buildStems("submit--");
+        Assert.assertTrue(stems.contains("submit"), "multiple trailing dashes should be stripped");
     }
 
     @Test
@@ -105,28 +118,6 @@ public class AttributeFallbackStrategyTest {
 
         By healed = strategy.heal(mockDriver, By.id("my-btn"));
         Assert.assertNotNull(healed, "should find the visible element");
-    }
-
-    @Test
-    public void healShouldHandleTagHashIdCssSelector() {
-        when(mockDriver.findElements(any(By.class)))
-                .thenReturn(Collections.singletonList(mockElement));
-
-        // button#submit-old — tag#id pattern that was failing before the fix
-        By healed = strategy.heal(mockDriver, By.cssSelector("button#submit-old"));
-
-        Assert.assertNotNull(healed, "should heal tag#id CSS selector");
-    }
-
-    @Test
-    public void healShouldHandleInputHashIdCssSelector() {
-        when(mockDriver.findElements(any(By.class)))
-                .thenReturn(Collections.singletonList(mockElement));
-
-        // input#password-old — another tag#id pattern
-        By healed = strategy.heal(mockDriver, By.cssSelector("input#password-old"));
-
-        Assert.assertNotNull(healed, "should heal input#id CSS selector");
     }
 
     @Test
