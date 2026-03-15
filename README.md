@@ -43,7 +43,7 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.1</version>
+    <version>2.0.2</version>
 </dependency>
 ```
 
@@ -337,6 +337,12 @@ src/main/java/io/github/autoheal/healing/
 
 ## Changelog
 
+### 2.0.2
+- Added addStrategy(IHealingStrategy) instance method to AutoHealingDriver
+  Allows external modules to register strategies at runtime without rebuilding the driver
+  Used by selenium-auto-healing-visual to register pHash and OCR strategies
+- Added getStrategies() to return unmodifiable view of current strategy chain
+
 ### 2.0.1
 - Fixed DomSimilarityStrategy tag extraction from CSS selectors
 - Increased tag match score from 15 to 30 points
@@ -369,6 +375,93 @@ src/main/java/io/github/autoheal/healing/
 
 ### 1.0.0
 - Initial release — 4 strategies, JSON report, TestNG wiring
+
+---
+
+## Pro Visual Healing (v2.1.0+)
+
+> **Available to Pro sponsors ($29/month) and Enterprise sponsors ($99/month)**
+> via private Maven repository after joining [GitHub Sponsors](https://github.com/sponsors/rnk07)
+
+Adds two additional healing strategies on top of the free library:
+
+### VisualHealingStrategy (priority 65) — Perceptual Hash
+
+Heals locators by comparing how elements look visually — no screenshot baseline needed.
+
+On every successful `findElement()` the element's screenshot region is hashed and stored.
+On failure, the page is scanned and the element that looks most similar is returned.
+
+```
+Run 1: button#submit found → screenshot cropped → pHash fingerprint stored
+Dev renames to button#submit-v2
+Run 2: button#submit fails
+  → pHash scan finds button#submit-v2 (Hamming distance: 3/64)
+  → healed ✓
+```
+
+### OcrHealingStrategy (priority 68) — Tesseract OCR
+
+Heals locators by reading visible text from the page screenshot using Tesseract OCR.
+Works even for elements rendered as images, canvas, or custom fonts.
+
+```
+button#submit-old fails
+  → Tesseract reads screenshot → finds text "Sign In" at (400, 320)
+  → XPath: //button[normalize-space(text())='Sign In']
+  → healed ✓
+```
+
+### Pro tier setup
+
+```xml
+<!-- Add BOTH to your pom.xml -->
+
+<!-- Free — Maven Central (always works) -->
+<dependency>
+    <groupId>io.github.rnk07</groupId>
+    <artifactId>selenium-auto-healing</artifactId>
+    <version>2.0.2</version>
+</dependency>
+
+<!-- Paid — GitHub Packages (Pro sponsors only) -->
+<dependency>
+    <groupId>io.github.rnk07</groupId>
+    <artifactId>selenium-auto-healing-visual</artifactId>
+    <version>2.1.0</version>
+</dependency>
+```
+
+Add to `~/.m2/settings.xml`:
+```xml
+<server>
+    <id>github</id>
+    <username>YOUR_GITHUB_USERNAME</username>
+    <password>YOUR_GITHUB_PERSONAL_ACCESS_TOKEN</password>
+</server>
+```
+
+Add to your `pom.xml` repositories section:
+```xml
+<repository>
+    <id>github</id>
+    <url>https://maven.pkg.github.com/rnk07/selenium-auto-healing-visual</url>
+</repository>
+```
+
+Enable visual healing in your Base class:
+```java
+@Listeners(AutoHealing.class)
+public class Base {
+    protected WebDriver driver;
+
+    @BeforeMethod
+    public void setUp() {
+        driver = new ChromeDriver();
+        // Visual healing registers automatically via @Listeners
+    }
+}
+```
 
 ---
 

@@ -100,6 +100,36 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     }
 
     // =========================================================================
+    // Strategy management — runtime registration
+    // =========================================================================
+
+    /**
+     * Adds a healing strategy to the chain at runtime.
+     *
+     * <p>Strategies are automatically sorted by priority after insertion.
+     * This allows external modules (such as selenium-auto-healing-visual)
+     * to register additional strategies without needing to rebuild the driver.
+     *
+     * @param strategy the strategy to add
+     */
+    public void addStrategy(IHealingStrategy strategy) {
+        if (strategy == null) return;
+        // Remove existing strategy of same type to avoid duplicates
+        strategies.removeIf(s -> s.getClass().equals(strategy.getClass()));
+        strategies.add(strategy);
+        strategies.sort(Comparator.comparingInt(IHealingStrategy::getPriority));
+        LOG.info("[AutoHealingDriver] Registered strategy: {} (priority {})",
+                strategy.getName(), strategy.getPriority());
+    }
+
+    /**
+     * Returns an unmodifiable view of the current strategy chain.
+     */
+    public List<IHealingStrategy> getStrategies() {
+        return java.util.Collections.unmodifiableList(strategies);
+    }
+
+    // =========================================================================
     // Core: findElement with healing
     // =========================================================================
 
