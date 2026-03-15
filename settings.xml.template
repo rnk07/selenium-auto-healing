@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~/.m2/settings.xml
+  Place this file at: C:\Users\YOUR-NAME\.m2\settings.xml  (Windows)
+                   or: /Users/YOUR-NAME/.m2/settings.xml    (Mac/Linux)
+
+  IMPORTANT: Replace the username and password values with the
+  token credentials you generate on central.sonatype.com
+  (Step 3 in the publishing guide — NOT your login password)
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+          http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <servers>
+        <server>
+            <!-- This id MUST match publishingServerId in pom.xml -->
+            <id>central</id>
+            <!-- Paste your token username from central.sonatype.com -->
+            <username>PASTE_YOUR_TOKEN_USERNAME_HERE</username>
+            <!-- Paste your token password from central.sonatype.com -->
+            <password>PASTE_YOUR_TOKEN_PASSWORD_HERE</password>
+        </server>
+    </servers>
+
+</settings>
