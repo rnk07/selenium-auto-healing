@@ -47,7 +47,7 @@
         <!-- Replace with your actual GitHub repo URL -->
         <connection>scm:git:git://github.com/rnk07/selenium-auto-healing.git</connection>
         <developerConnection>scm:git:ssh://github.com/rnk07/selenium-auto-healing.git</developerConnection>
-        <url>https://github.com/rnk07/selenium-auto-healing/tree/main</url>
+        <url>https://github.com/rnk07/selenium-auto-healing/tree/master</url>
     </scm>
 
     <properties>
