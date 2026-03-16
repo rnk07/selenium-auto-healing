@@ -40,7 +40,7 @@ When a locator fails, the library runs a chain of healing strategies to find the
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.7</version>
+    <version>2.0.9</version>
 </dependency>
 ```
 
@@ -137,30 +137,55 @@ public class LoginPage extends BasePage {
     public void login(String username, String password) {
         type(userNameInput, username);
         type(passwordInput, password);
-        click(submitBtn); // healed automatically if locator breaks
+        click(submitBtn);
     }
 }
 ```
 
-That is all. No other changes needed.
-
 ---
 
-## How It Gets Smarter Every Run
+## LLM Healing — Groq API (Optional but Powerful)
 
-No Docker. No PostgreSQL. No external server. An embedded H2 database stores every healed locator.
+The library includes `LlmHealingStrategy` which uses Groq's free LLM API to heal locators that no DOM-based strategy can fix.
+
+**How it works:** When all other strategies fail, the strategy captures a compact snapshot of the page's interactive elements and asks Groq's `llama-3.1-8b-instant` model which element matches the broken locator. The LLM uses context from the broken locator name and the page DOM to identify the correct element.
 
 ```
-Run 1 — locator breaks for the first time
-   button#submit-old fails
-   strategy chain runs (1-3 seconds)
-   healed to button[id='submit']
-   saved to target/healing-db/
-
-Run 2+ — same broken locator
-   database lookup in ~5 milliseconds
-   healed instantly
+All DOM strategies fail for '[data-username='abc123xyz']'
+→ LlmHealingStrategy sends to Groq:
+    Broken locator: [data-username='abc123xyz']
+    Page elements:
+      input | id=username | name=username | type=text | placeholder=Student
+      input | id=password | name=password | type=password
+      button | id=submit | type=submit | text=Submit
+→ Groq returns: input[id='username']
+→ verified visible → healed ✅
 ```
+
+### Setup
+
+**Step 1** — Get a free Groq API key at https://console.groq.com — no credit card required, 500k tokens/day free.
+
+**Step 2** — Pass the key when running tests.
+
+**Eclipse:** Right-click test → Run As → Run Configurations → Arguments tab → VM arguments:
+```
+-DGROQ_API_KEY=gsk_your_key_here
+```
+
+**Maven CLI:**
+```bash
+mvn test -DGROQ_API_KEY=gsk_your_key_here
+```
+
+**Windows system env var (permanent):**
+```
+Win+R → sysdm.cpl → Advanced → Environment Variables
+→ New: GROQ_API_KEY = gsk_your_key_here
+→ Restart Eclipse
+```
+
+If no key is configured, `LlmHealingStrategy` silently skips and the next strategy runs — no errors.
 
 ---
 
@@ -168,7 +193,7 @@ Run 2+ — same broken locator
 
 | Priority | Strategy | What it heals |
 |----------|----------|---------------|
-| 0 | HistoricalDatabase | Any previously healed locator — instant recall |
+| 0 | HistoricalDatabase | Any previously healed locator — instant recall in ~5ms |
 | 5 | StaleElementStrategy | Elements stale after React/Angular re-render |
 | 10 | AttributeFallbackStrategy | Renamed IDs, version suffixes, camelCase splits |
 | 20 | XPathFallbackStrategy | Text content stable, attributes changed |
@@ -176,40 +201,24 @@ Run 2+ — same broken locator
 | 40 | SiblingWalkStrategy | Form fields where label is stable, input id changed |
 | 50 | ShadowDomStrategy | Elements inside Shadow DOM — Web Components, Lit, Stencil |
 | 60 | IframeStrategy | Elements inside iframes — Stripe, PayPal, reCAPTCHA |
-| 62 | DomFingerprintStrategy | Multi-attribute fingerprint — id, name, type, aria, text, class, DOM path |
-| 70 | DomSimilarityStrategy | Last resort — structural similarity |
+| 64 | LlmHealingStrategy | Groq LLM — sends DOM snapshot, LLM returns correct selector |
+| 70 | DomSimilarityStrategy | Last resort structural similarity |
 
 ---
 
-## DomFingerprintStrategy — How It Works
+## How It Gets Smarter Every Run
 
-This is the same approach used by Healenium and commercial tools like BrowserStack and LambdaTest.
-
-On every successful `findElement()` the library stores a DOM fingerprint containing the element's intrinsic attributes. When a locator breaks, the strategy scores all same-tag elements on the current page by weighted attribute overlap.
+An embedded H2 database stores every healed locator. No Docker, no PostgreSQL, no external server.
 
 ```
-Stored fingerprint for "button#submit":
-  tag=button, type=submit, text=Login, classes=btn btn-success
+Run 1 — locator breaks for the first time
+   LlmHealingStrategy asks Groq → heals correctly (~300ms)
+   saved to target/healing-db/
 
-Developer renames to button#loginBtn (all other attributes stay the same):
-  Candidate button[id=loginBtn][type=submit][text=Login][class=btn btn-success]
-  Score: type(6) + text(6) + 2 classes(8) + path(5) = 25  → healed ✅
+Run 2+ — same broken locator
+   HistoricalDatabase instant recall in ~5ms
+   no Groq API call needed
 ```
-
-Attribute weights:
-
-| Attribute | Weight |
-|---|---|
-| id | 10 |
-| name | 8 |
-| aria-label | 7 |
-| type | 6 |
-| text | 6 |
-| placeholder | 5 |
-| DOM path suffix | 5 |
-| per shared CSS class | 4 |
-
-Elements with different types, names, and text cannot cross-match — username input (type=text, name=username) will never be confused with a submit button (type=submit, text=Login).
 
 ---
 
@@ -218,8 +227,8 @@ Elements with different types, names, and text cannot cross-match — username i
 ```
 WARN  HealingReport - TEST SUMMARY: loginTest.loginMethodTest
   2 locator(s) healed:
-  [1] broken='button#submit-old' healed='button[id='submit']' via=DomFingerprintStrategy
-  [2] broken='input#password-v2' healed='input[name='password']' via=DomFingerprintStrategy
+  [1] broken='[data-username='abc123xyz']' healed='input[id='username']' via=LlmHealingStrategy
+  [2] broken='[data-submit='abc123xyz']'   healed='button[id='submit']'  via=LlmHealingStrategy
 
 INFO  HealingReport - TEST SUMMARY: checkoutTest.placeOrder — no healing needed
 ```
@@ -239,9 +248,9 @@ target/healing-report/healing-report-20260315-011326.json
   "events": [
     {
       "testName": "loginTest.loginMethodTest",
-      "brokenLocator": "By.cssSelector: button#submit-old",
-      "healedLocator": "button[id='submit']",
-      "strategyUsed": "DomFingerprintStrategy"
+      "brokenLocator": "By.cssSelector: [data-username='abc123xyz']",
+      "healedLocator": "input[id='username']",
+      "strategyUsed": "LlmHealingStrategy"
     }
   ]
 }
@@ -275,7 +284,7 @@ public class MyStrategy implements IHealingStrategy {
 
 AutoHealingDriver driver = AutoHealingDriver.builder(new ChromeDriver())
         .withStrategy(new MyStrategy())
-        .withoutStrategy(SiblingWalkStrategy.class)
+        .withoutStrategy(LlmHealingStrategy.class)
         .build();
 ```
 
@@ -285,8 +294,7 @@ AutoHealingDriver driver = AutoHealingDriver.builder(new ChromeDriver())
 
 ```
 target/healing-db/
-    healing.mv.db            ← healed locators for instant recall
-    dom-fingerprints.mv.db   ← DOM attribute fingerprints
+    healing.mv.db   ← all healed locators, instant recall on repeat runs
 ```
 
 To clear all history, delete the `target/healing-db/` folder.
@@ -299,33 +307,34 @@ To clear all history, delete the `target/healing-db/` folder.
 - Selenium 4.x
 - TestNG 7.x
 - H2 2.x
+- Groq API key (optional — free at console.groq.com)
 
 ---
 
 ## Changelog
 
+### 2.0.9
+- Removed DomFingerprintStrategy — replaced entirely by LlmHealingStrategy
+- LlmHealingStrategy (priority 64) uses Groq llama-3.1-8b-instant — free, no credit card
+- Sends compact DOM snapshot to Groq — LLM infers the correct element from context
+- Gracefully skips if GROQ_API_KEY not set — next strategy runs instead
+- No additional dependencies — pure Java HTTP POST, no SDK needed
+
 ### 2.0.8
-- Added LlmHealingStrategy (priority 64) — Groq LLM healing using llama-3.1-8b-instant
-- Free Groq API key required — sign up at https://console.groq.com (no credit card)
-- Set key via -DGROQ_API_KEY=gsk_xxx system property or GROQ_API_KEY env var
-- Sends broken locator + compact DOM snapshot to Groq — LLM returns best CSS selector
-- Gracefully skips if no API key configured or rate limit hit
-- No additional dependencies — pure Java HTTP, no SDK needed
+- Added LlmHealingStrategy (priority 64) — Groq LLM healing
+- Added DomFingerprintStrategy (priority 62) — multi-attribute DOM fingerprint healing
 
 ### 2.0.7
-- Added DomFingerprintStrategy (priority 62) — industry-standard multi-attribute DOM fingerprint healing
-- Stores tag, id, name, type, aria-label, text, placeholder, CSS classes, and DOM path fingerprint on every successful findElement
-- Weighted attribute scoring correctly disambiguates between all elements on the same page
-- DomFingerprintStrategy uses its own H2 database at target/healing-db/dom-fingerprints
+- Added DomFingerprintStrategy (priority 62) — industry-standard weighted attribute scoring
 
 ### 2.0.6
 - Added CURRENT_USED_LOCATORS static ThreadLocal for cross-strategy coordination
 
 ### 2.0.5
-- Added usedLocators Set — tracks which locators were found successfully in the current test run
+- Added usedLocators Set tracking per test run
 
 ### 2.0.4
-- AutoHealingDriver.findElement() records fingerprints on every successful find via reflection
+- AutoHealingDriver.findElement() records fingerprints on every successful find
 
 ### 2.0.3
 - AutoHealing listener auto-registers additional strategies from classpath
