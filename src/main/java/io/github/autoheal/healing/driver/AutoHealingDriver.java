@@ -97,6 +97,11 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     private final java.util.Set<String> usedLocators =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
+    /** Static ThreadLocal so VisualHealingStrategy can read usedLocators
+     *  without needing a reference to AutoHealingDriver. */
+    public static final ThreadLocal<java.util.Set<String>> CURRENT_USED_LOCATORS =
+            ThreadLocal.withInitial(java.util.HashSet::new);
+
     private AutoHealingDriver(WebDriver delegate,
                                List<IHealingStrategy> strategies,
                                HealingReport report) {
@@ -113,7 +118,10 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     public java.util.Set<String> getUsedLocators() { return usedLocators; }
 
     /** Clears the used locators tracking — called by AutoHealing listener before each test. */
-    public void clearUsedLocators() { usedLocators.clear(); }
+    public void clearUsedLocators() {
+        usedLocators.clear();
+        CURRENT_USED_LOCATORS.get().clear();
+    }
 
     /**
      * Adds a healing strategy to the chain at runtime.
@@ -166,6 +174,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
             tryRecordVisualFingerprint(by, element);
             // Track this locator as "used" in current test — for visual healing disambiguation
             usedLocators.add(by.toString());
+            CURRENT_USED_LOCATORS.get().add(by.toString());
             return element;
         } catch (StaleElementReferenceException staleException) {
             // DOM was refreshed (React/Angular re-render, AJAX update)

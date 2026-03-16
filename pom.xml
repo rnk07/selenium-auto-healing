@@ -8,7 +8,7 @@
    
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.5</version>
+    <version>2.0.6</version>
     <packaging>jar</packaging>
 
     <name>Selenium Auto-Healing Locator</name>
