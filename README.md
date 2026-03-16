@@ -43,7 +43,7 @@ The test passes. A JSON report tells you exactly which locators need to be updat
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.3</version>
+    <version>2.0.4</version>
 </dependency>
 ```
 
@@ -337,6 +337,12 @@ src/main/java/io/github/autoheal/healing/
 
 ## Changelog
 
+### 2.0.4
+- AutoHealingDriver.findElement() now records visual fingerprints on every
+  successful element find — enabling VisualHealingStrategy to heal on run 2+
+- Fingerprint recording uses reflection — zero compile-time dependency on paid lib
+- Also records fingerprint after a successful heal so healed elements are also learned
+
 ### 2.0.3
 - AutoHealing listener now auto-registers visual healing strategies
   if selenium-auto-healing-visual jar is on the classpath
@@ -428,7 +434,7 @@ button#submit-old fails
 <dependency>
     <groupId>io.github.rnk07</groupId>
     <artifactId>selenium-auto-healing</artifactId>
-    <version>2.0.3</version>
+    <version>2.0.4</version>
 </dependency>
 
 <!-- Paid — GitHub Packages (Pro sponsors only) -->

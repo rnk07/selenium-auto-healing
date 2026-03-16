@@ -13,25 +13,22 @@
  */
 package io.github.autoheal.healing.driver;
 
-import io.github.autoheal.healing.db.HealingDatabase;
-import io.github.autoheal.healing.report.HealingReport;
-import io.github.autoheal.healing.strategy.AttributeFallbackStrategy;
-import io.github.autoheal.healing.strategy.CssFallbackStrategy;
-import io.github.autoheal.healing.strategy.IHealingStrategy;
-import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
-import io.github.autoheal.healing.strategy.DomSimilarityStrategy;
-import io.github.autoheal.healing.strategy.IframeStrategy;
-import io.github.autoheal.healing.strategy.StaleElementStrategy;
-import io.github.autoheal.healing.strategy.ShadowDomStrategy;
-import io.github.autoheal.healing.strategy.XPathFallbackStrategy;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
 import org.openqa.selenium.By;
 import org.openqa.selenium.Capabilities;
 import org.openqa.selenium.Cookie;
 import org.openqa.selenium.HasCapabilities;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.NoSuchElementException;
-import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.OutputType;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.TakesScreenshot;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
@@ -40,13 +37,17 @@ import org.openqa.selenium.logging.Logs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import io.github.autoheal.healing.db.HealingDatabase;
+import io.github.autoheal.healing.report.HealingReport;
+import io.github.autoheal.healing.strategy.AttributeFallbackStrategy;
+import io.github.autoheal.healing.strategy.CssFallbackStrategy;
+import io.github.autoheal.healing.strategy.DomSimilarityStrategy;
+import io.github.autoheal.healing.strategy.IHealingStrategy;
+import io.github.autoheal.healing.strategy.IframeStrategy;
+import io.github.autoheal.healing.strategy.ShadowDomStrategy;
+import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
+import io.github.autoheal.healing.strategy.StaleElementStrategy;
+import io.github.autoheal.healing.strategy.XPathFallbackStrategy;
 
 /**
  * AutoHealingDriver — a WebDriver wrapper that automatically heals broken locators.
@@ -149,7 +150,10 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     @Override
     public WebElement findElement(By by) {
         try {
-            return delegate.findElement(by);
+            WebElement element = delegate.findElement(by);
+            // Record visual fingerprint for successful finds (used by VisualHealingStrategy)
+            tryRecordVisualFingerprint(by, element);
+            return element;
         } catch (StaleElementReferenceException staleException) {
             // DOM was refreshed (React/Angular re-render, AJAX update)
             // Re-find the element using the same locator — element still exists, just stale
@@ -208,6 +212,8 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                             report.log(by, healed, strategy.getName());
                             // Save to DB so next run is instant
                             HealingDatabase.getInstance().save(by, healed, currentUrl, strategy.getName());
+                            // Record visual fingerprint for the healed element
+                            tryRecordVisualFingerprint(by, visible);
                             return visible;
                         }
                     } catch (Exception ex) {
@@ -376,6 +382,38 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     public static Builder builder(WebDriver driver) {
         return new Builder(driver);
     }
+
+    // =========================================================================
+    // Visual fingerprint recording — reflection-based, zero paid-lib dependency
+    // =========================================================================
+
+    /**
+     * Records a visual fingerprint for a successfully found element.
+     * Uses reflection to call VisualHealingStrategy.recordFingerprint()
+     * so the free library has zero compile-time dependency on the paid library.
+     * Silently skips if the visual library is not on the classpath.
+     */
+    private void tryRecordVisualFingerprint(By locator, WebElement element) {
+        try {
+            Class<?> strategyClass = Class.forName(
+                    "io.github.autoheal.visual.strategy.VisualHealingStrategy");
+            java.lang.reflect.Method record = strategyClass.getMethod(
+                    "recordFingerprint",
+                    WebDriver.class,
+                    By.class,
+                    WebElement.class);
+            record.invoke(null, delegate, locator, element);
+        } catch (ClassNotFoundException ignored) {
+            // Visual library not present — free tier, skip silently
+        } catch (Exception e) {
+            LOG.debug("[AutoHealingDriver] Could not record visual fingerprint: {}",
+                      e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // Builder
+    // =========================================================================
 
     /**
      * Fluent builder for {@link AutoHealingDriver}.
