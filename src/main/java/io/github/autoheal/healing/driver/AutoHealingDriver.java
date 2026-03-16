@@ -19,6 +19,7 @@ import io.github.autoheal.healing.strategy.AttributeFallbackStrategy;
 import io.github.autoheal.healing.strategy.CssFallbackStrategy;
 import io.github.autoheal.healing.strategy.IHealingStrategy;
 import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
+import io.github.autoheal.healing.strategy.DomFingerprintStrategy;
 import io.github.autoheal.healing.strategy.DomSimilarityStrategy;
 import io.github.autoheal.healing.strategy.IframeStrategy;
 import io.github.autoheal.healing.strategy.StaleElementStrategy;
@@ -170,6 +171,8 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     public WebElement findElement(By by) {
         try {
             WebElement element = delegate.findElement(by);
+            // Record DOM fingerprint for successful finds (used by DomFingerprintStrategy)
+            DomFingerprintStrategy.recordFingerprint(delegate, by, element);
             // Record visual fingerprint for successful finds (used by VisualHealingStrategy)
             tryRecordVisualFingerprint(by, element);
             // Track this locator as "used" in current test — for visual healing disambiguation
@@ -456,6 +459,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                     new SiblingWalkStrategy(),
                     new ShadowDomStrategy(),
                     new IframeStrategy(),
+                    new DomFingerprintStrategy(),
                     new DomSimilarityStrategy()
             ));
         }
