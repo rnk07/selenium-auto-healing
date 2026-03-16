@@ -188,36 +188,54 @@ public class DomFingerprintStrategy implements IHealingStrategy {
         LOG.debug("[DomFingerprintStrategy] Attempting DOM fingerprint healing for '{}'", broken);
 
         String pageUrl = getCurrentUrl(driver);
-        DomFingerprint fp = loadFingerprint(broken.toString(), pageUrl);
-        if (fp == null) {
-            LOG.debug("[DomFingerprintStrategy] No fingerprint stored for '{}'. " +
-                      "Run with correct locators first.", broken);
+
+        // Load ALL fingerprints for this page URL — not just the one matching the broken locator.
+        // The broken locator key was never seen before so a direct lookup always misses.
+        // Find the best (fingerprint, candidate) pair across all stored fingerprints,
+        // excluding fingerprints for locators already found successfully this test run.
+        List<DomFingerprint> allFingerprints = loadAllFingerprints(pageUrl);
+        if (allFingerprints.isEmpty()) {
+            LOG.debug("[DomFingerprintStrategy] No fingerprints stored for page '{}'. " +
+                      "Run with correct locators first.", pageUrl);
             return null;
         }
 
-        LOG.debug("[DomFingerprintStrategy] Loaded fingerprint: tag={} id={} name={} type={}",
-                  fp.tag, fp.id, fp.name, fp.type);
+        // Exclude fingerprints for locators already found successfully this test run
+        java.util.Set<String> usedLocators = getUsedLocators();
+        if (!usedLocators.isEmpty()) {
+            allFingerprints.removeIf(fp -> usedLocators.contains(fp.locator));
+            LOG.debug("[DomFingerprintStrategy] After excluding used locators: {} fingerprint(s) remain",
+                      allFingerprints.size());
+        }
 
-        // Scan all elements of same tag on current page
+        if (allFingerprints.isEmpty()) {
+            LOG.debug("[DomFingerprintStrategy] All fingerprints excluded by used-locator filter.");
+            return null;
+        }
+
+        // Scan all interactive candidates on current page
         List<Map<String, Object>> candidates = scanCandidates(
-                (JavascriptExecutor) driver, fp.tag);
+                (JavascriptExecutor) driver, null);
 
-        if (candidates == null || candidates.isEmpty()) {
-            LOG.debug("[DomFingerprintStrategy] No candidates found for tag '{}'", fp.tag);
-            return null;
-        }
+        if (candidates == null || candidates.isEmpty()) return null;
 
-        // Score each candidate
+        LOG.debug("[DomFingerprintStrategy] Scoring {} candidate(s) against {} fingerprint(s)",
+                  candidates.size(), allFingerprints.size());
+
+        // Find best (fingerprint, candidate) pair — cross-tag comparisons blocked
         Map<String, Object> best = null;
         int bestScore = MIN_SCORE - 1;
 
-        for (Map<String, Object> c : candidates) {
-            int score = scoreCandidate(fp, c);
-            LOG.debug("[DomFingerprintStrategy] Candidate id='{}' name='{}' score={}",
-                      s(c,"id"), s(c,"name"), score);
-            if (score > bestScore) {
-                bestScore = score;
-                best = c;
+        for (DomFingerprint fp : allFingerprints) {
+            for (Map<String, Object> c : candidates) {
+                if (!fp.tag.equals(s(c, "tag"))) continue;
+                int score = scoreCandidate(fp, c);
+                LOG.debug("[DomFingerprintStrategy] fp[{}] vs candidate id='{}' name='{}' score={}",
+                          fp.locator, s(c,"id"), s(c,"name"), score);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = c;
+                }
             }
         }
 
@@ -287,9 +305,10 @@ public class DomFingerprintStrategy implements IHealingStrategy {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> scanCandidates(JavascriptExecutor js, String tag) {
         try {
+            String selector = (tag != null && !tag.isBlank()) ? tag
+                    : "input,button,a,select,textarea";
             String script =
-                "var tag = '" + tag + "';" +
-                "var els = document.querySelectorAll(tag);" +
+                "var els = document.querySelectorAll('" + selector + "');" +
                 "var res = [];" +
                 "function domPath(e) {" +
                 "  var path = [];" +
@@ -372,6 +391,51 @@ public class DomFingerprintStrategy implements IHealingStrategy {
         return null;
     }
 
+    private List<DomFingerprint> loadAllFingerprints(String pageUrl) {
+        List<DomFingerprint> list = new java.util.ArrayList<>();
+        String sql =
+            "SELECT LOCATOR, TAG, ELEM_ID, ELEM_NAME, ELEM_TYPE, ELEM_ARIA, " +
+            "ELEM_TEXT, PLACEHOLDER, CLASSES, DOM_PATH " +
+            "FROM DOM_FINGERPRINTS WHERE PAGE_URL=?";
+        try (Connection c  = DriverManager.getConnection(DB_URL, "sa", "");
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, pageUrl);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    DomFingerprint fp = new DomFingerprint();
+                    fp.locator = orEmpty(rs.getString("LOCATOR"));
+                    fp.tag     = orEmpty(rs.getString("TAG"));
+                    fp.id      = orEmpty(rs.getString("ELEM_ID"));
+                    fp.name    = orEmpty(rs.getString("ELEM_NAME"));
+                    fp.type    = orEmpty(rs.getString("ELEM_TYPE"));
+                    fp.aria    = orEmpty(rs.getString("ELEM_ARIA"));
+                    fp.text    = orEmpty(rs.getString("ELEM_TEXT"));
+                    fp.ph      = orEmpty(rs.getString("PLACEHOLDER"));
+                    fp.classes = orEmpty(rs.getString("CLASSES"));
+                    fp.path    = orEmpty(rs.getString("DOM_PATH"));
+                    list.add(fp);
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("[DomFingerprintStrategy] loadAllFingerprints error: {}", e.getMessage());
+        }
+        return list;
+    }
+
+    private java.util.Set<String> getUsedLocators() {
+        try {
+            Class<?> cls = Class.forName(
+                    "io.github.autoheal.healing.driver.AutoHealingDriver");
+            java.lang.reflect.Field f = cls.getField("CURRENT_USED_LOCATORS");
+            @SuppressWarnings("unchecked")
+            ThreadLocal<java.util.Set<String>> tl =
+                    (ThreadLocal<java.util.Set<String>>) f.get(null);
+            return tl.get();
+        } catch (Exception e) {
+            return java.util.Collections.emptySet();
+        }
+    }
+
     private String getCurrentUrl(WebDriver driver) {
         try { return driver.getCurrentUrl(); } catch (Exception e) { return ""; }
     }
@@ -391,6 +455,6 @@ public class DomFingerprintStrategy implements IHealingStrategy {
 
     /** Simple value object holding a stored DOM fingerprint. */
     private static class DomFingerprint {
-        String tag, id, name, type, aria, text, ph, classes, path;
+        String locator, tag, id, name, type, aria, text, ph, classes, path;
     }
 }

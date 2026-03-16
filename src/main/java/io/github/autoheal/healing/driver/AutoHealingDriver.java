@@ -22,6 +22,7 @@ import io.github.autoheal.healing.strategy.SiblingWalkStrategy;
 import io.github.autoheal.healing.strategy.DomFingerprintStrategy;
 import io.github.autoheal.healing.strategy.DomSimilarityStrategy;
 import io.github.autoheal.healing.strategy.IframeStrategy;
+import io.github.autoheal.healing.strategy.LlmHealingStrategy;
 import io.github.autoheal.healing.strategy.StaleElementStrategy;
 import io.github.autoheal.healing.strategy.ShadowDomStrategy;
 import io.github.autoheal.healing.strategy.XPathFallbackStrategy;
@@ -460,6 +461,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                     new ShadowDomStrategy(),
                     new IframeStrategy(),
                     new DomFingerprintStrategy(),
+                    new LlmHealingStrategy(),
                     new DomSimilarityStrategy()
             ));
         }

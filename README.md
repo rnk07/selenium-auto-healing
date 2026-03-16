@@ -304,6 +304,14 @@ To clear all history, delete the `target/healing-db/` folder.
 
 ## Changelog
 
+### 2.0.8
+- Added LlmHealingStrategy (priority 64) — Groq LLM healing using llama-3.1-8b-instant
+- Free Groq API key required — sign up at https://console.groq.com (no credit card)
+- Set key via -DGROQ_API_KEY=gsk_xxx system property or GROQ_API_KEY env var
+- Sends broken locator + compact DOM snapshot to Groq — LLM returns best CSS selector
+- Gracefully skips if no API key configured or rate limit hit
+- No additional dependencies — pure Java HTTP, no SDK needed
+
 ### 2.0.7
 - Added DomFingerprintStrategy (priority 62) — industry-standard multi-attribute DOM fingerprint healing
 - Stores tag, id, name, type, aria-label, text, placeholder, CSS classes, and DOM path fingerprint on every successful findElement
