@@ -115,10 +115,6 @@ public class AutoHealing implements IInvokedMethodListener, ISuiteListener {
 
                 // Step 3: Auto-register visual healing strategies if the
                 // selenium-auto-healing-visual jar is on the classpath.
-                // Uses reflection so the free library has zero compile-time
-                // dependency on the paid library — it just skips silently if absent.
-                tryEnableVisualHealing(healingDriver);
-
                 // Clear used-locator tracking for fresh test run
                 healingDriver.clearUsedLocators();
                 LOG.debug("[AutoHealing] Wrapped driver for test: {}", testName);

@@ -171,9 +171,7 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
     public WebElement findElement(By by) {
         try {
             WebElement element = delegate.findElement(by);
-            // Record visual fingerprint for successful finds (used by VisualHealingStrategy)
-            tryRecordVisualFingerprint(by, element);
-            // Track this locator as "used" in current test — for visual healing disambiguation
+            // Track this locator as "used" in current test
             usedLocators.add(by.toString());
             CURRENT_USED_LOCATORS.get().add(by.toString());
             return element;
@@ -235,8 +233,6 @@ public class AutoHealingDriver implements WebDriver, JavascriptExecutor,
                             report.log(by, healed, strategy.getName());
                             // Save to DB so next run is instant
                             HealingDatabase.getInstance().save(by, healed, currentUrl, strategy.getName());
-                            // Record visual fingerprint for the healed element
-                            tryRecordVisualFingerprint(by, visible);
                             return visible;
                         }
                     } catch (Exception ex) {
